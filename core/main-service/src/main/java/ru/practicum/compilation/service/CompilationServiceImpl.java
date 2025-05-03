@@ -28,18 +28,15 @@ public class CompilationServiceImpl implements CompilationService {
 
     @Override
     public CompilationResponseDto create(CompilationRequestDto request) {
-        log.info("Create method started");
-        log.info("Preparing model");
+        log.info("Create method started with params: {}", request.toString());
+
         Compilation compilation = compilationMapper.fromDto(request);
 
-        log.info("Collecting events");
         List<Event> events = new ArrayList<>();
         if (request.getEvents() != null && !request.getEvents().isEmpty()) {
             events = eventRepository.getAllByIds(request.getEvents());
         }
         compilation.setEvents(events);
-
-        log.info("Saving model: {}", compilation);
         compilation = repository.save(compilation);
 
         return getDto(compilation);
@@ -47,7 +44,7 @@ public class CompilationServiceImpl implements CompilationService {
 
     @Override
     public CompilationResponseDto update(CompilationRequestDto request, Long id) {
-        log.info("Update method started");
+        log.info("Update method started with params: {}, id = {}", request.toString(), id);
         Compilation compilation = getCompilation(id);
 
         log.info("Updating model");
@@ -62,31 +59,26 @@ public class CompilationServiceImpl implements CompilationService {
             compilation.setPinned(request.getPinned());
         }
 
-        log.info("Getting events");
         if (request.getEvents() != null) {
-            log.info("Getting events from db");
             List<Event> events = eventRepository.getAllByIds(request.getEvents());
             compilation.setEvents(events);
         }
 
-        log.info("Saving updated model and returning dto");
         return compilationMapper.toDto(repository.save(compilation));
     }
 
     @Override
     public void delete(Long id) {
-        log.info("Delete method started");
+        log.info("Delete method started with id = {}", id);
         repository.deleteById(id);
-        log.info("Delete method finished");
     }
 
     @Override
     public List<CompilationResponseDto> get(Boolean pinned, Integer offset, Integer size) {
-        log.info("Get method started");
+        log.info("Get method started with param: pinned = {}, offset = {}, size = {}", pinned, offset, size);
         log.info("Checking pinned param = {}", pinned);
 
         if (pinned == null) {
-            log.info("Returning compilations list");
             return compilationMapper.toDtoList(repository.getCompilations(size, offset));
         }
 
@@ -96,19 +88,18 @@ public class CompilationServiceImpl implements CompilationService {
 
     @Override
     public CompilationResponseDto getById(Long id) {
-        log.info("Get by id method started");
+        log.info("Get by id method started with id = {}", id);
         Compilation compilation = getCompilation(id);
 
         return getDto(compilation);
     }
 
     private Compilation getCompilation(Long id) {
-        log.info("Getting compilation with id {}", id);
+        log.info("Getting compilation with id = {}", id);
         return repository.findById(id).orElseThrow(() -> new NotFoundException("No such compilation with id: " + id));
     }
 
     private CompilationResponseDto getDto(Compilation compilation) {
-        log.info("Preparing dto");
         CompilationResponseDto responseDto = compilationMapper.toDto(compilation);
         responseDto.setEvents(new ArrayList<>());
 
