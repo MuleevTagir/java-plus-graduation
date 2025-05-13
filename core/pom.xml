@@ -13,7 +13,16 @@
     <packaging>pom</packaging>
 
     <modules>
-        <module>main-service</module>
+        <module>common-api</module>
+        <module>event-service</module>
+        <module>event-api</module>
+        <module>user-api</module>
+        <module>request-api</module>
+        <module>user-service</module>
+        <module>request-service</module>
+        <module>category-api</module>
+        <module>category-service</module>
+        <module>comment-service</module>
+        <module>comment-api</module>
     </modules>
-
 </project>

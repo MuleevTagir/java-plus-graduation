@@ -1,74 +1,62 @@
 package ru.practicum.service;
 
-import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import ru.practicum.HitRequestDto;
-import ru.practicum.StatsResponseDto;
-import ru.practicum.errors.exceptions.InvalidRequestException;
-import ru.practicum.mappers.StatsMapper;
-import ru.practicum.model.Hit;
-import ru.practicum.repository.StatRepository;
+import ru.practicum.dto.StatsRequestDto;
+import ru.practicum.dto.StatsResponseDto;
+import ru.practicum.exception.ValidationException;
+import ru.practicum.mapper.Mapper;
+import ru.practicum.model.Response;
+import ru.practicum.repository.StatsRepository;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
+@FieldDefaults(level = AccessLevel.PRIVATE)
+@AllArgsConstructor
 @Slf4j
-@Transactional
-public class StatsServiceImpl implements StatService {
-    private final StatRepository repository;
-    private final StatsMapper mapper;
+public class StatsServiceImpl implements StatsService {
 
-    private static final String DATE_TIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
-    private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern(DATE_TIME_FORMAT);
+    final StatsRepository statsRepository;
 
-
-    @Override
-    public StatsResponseDto save(HitRequestDto body) {
-        LocalDateTime timestamp = getDateTime(body.getTimestamp());
-        Hit hit = new Hit();
-        hit.setApp(body.getApp());
-        hit.setUri(body.getUri());
-        hit.setTimestamp(timestamp);
-        hit.setIp(body.getIp());
-
-        return mapper.toDto(repository.save(hit));
+    @Transactional
+    public StatsRequestDto save(StatsRequestDto requestDto) {
+        log.info("Save request to {}", requestDto);
+        try {
+            var savedRequest = statsRepository.save(Mapper.toRequest(requestDto));
+            return Mapper.toRequestDto(savedRequest);
+        } catch (Exception e) {
+            throw new ValidationException(e.getMessage());
+        }
     }
 
-    @Override
-    public List<StatsResponseDto> getStats(LocalDateTime start,
-                                           LocalDateTime end,
-                                           List<String> uris,
-                                           boolean unique) {
-        List<StatsResponseDto> hits;
+    public List<StatsResponseDto> getStats(LocalDateTime start, LocalDateTime end, List<String> uris, boolean unique) {
         if (start.isAfter(end)) {
-            throw new InvalidRequestException("Start is after end");
+            throw new ValidationException("Время окончания позже начала");
         }
-        log.info("Uris = {}", uris);
-        if (uris != null && !uris.isEmpty()) {
+
+        List<Response> statistic;
+        if ((uris == null) || (uris.isEmpty())) {
             if (unique) {
-                hits = repository.getStatsByUriWithUniqueIps(uris, start, end);
+                statistic = statsRepository.findAllUnique(start, end);
             } else {
-                hits = repository.getStatsByUri(uris, start, end);
+                statistic = statsRepository.findAll(start, end);
             }
         } else {
             if (unique) {
-                hits = repository.getStatsByTimeWithUniqueIps(start, end);
+                statistic = statsRepository.findUrisUnique(start, end, uris);
             } else {
-                hits = repository.findAllTimestampBetweenStartAndEnd(start, end);
+                statistic = statsRepository.findUris(start, end, uris);
             }
         }
-
-        return hits;
+        return statistic.stream()
+                .map(Mapper::toResponseDto)
+                .collect(Collectors.toList());
     }
-
-    private LocalDateTime getDateTime(String date) {
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        return LocalDateTime.parse(date, formatter);
-    }
-
 }
