@@ -37,6 +37,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static ru.practicum.application.api.dto.enums.StateAction.PUBLISH_EVENT;
 import static ru.practicum.client.util.JsonFormatPattern.JSON_FORMAT_PATTERN_FOR_TIME;
 
 @Service
@@ -44,6 +45,11 @@ import static ru.practicum.client.util.JsonFormatPattern.JSON_FORMAT_PATTERN_FOR
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class UserEventServiceImpl implements UserEventService {
+
+    private final static String PUBLISH_EVENT= "PUBLISH_EVENT";
+    private final static String CANCEL_REVIEW = "CANCEL_REVIEW";
+    private final static String SEND_TO_REVIEW = "SEND_TO_REVIEW";
+
     final EventRepository eventRepository;
     final LocationRepository locationRepository;
 
@@ -191,14 +197,14 @@ public class UserEventServiceImpl implements UserEventService {
         }
         if (inpEventDto.getStateAction() != null) {
             switch (inpEventDto.getStateAction().toUpperCase()) {
-                case "PUBLISH_EVENT":
+                case PUBLISH_EVENT:
                     event.setState(EventState.PUBLISHED);
                     event.setPublishedOn(LocalDateTime.now());
                     break;
-                case "CANCEL_REVIEW":
+                case CANCEL_REVIEW:
                     event.setState(EventState.CANCELED);
                     break;
-                case "SEND_TO_REVIEW":
+                case SEND_TO_REVIEW:
                     event.setState(EventState.PENDING);
                     break;
                 default:
