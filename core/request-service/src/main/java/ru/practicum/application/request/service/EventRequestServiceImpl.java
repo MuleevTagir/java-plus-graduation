@@ -1,5 +1,6 @@
 package ru.practicum.application.request.service;
 
+import com.google.protobuf.Timestamp;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -18,7 +19,11 @@ import ru.practicum.application.request.mapper.EventRequestMapper;
 import ru.practicum.application.request.model.EventRequest;
 import ru.practicum.application.request.repository.RequestRepository;
 import ru.practicum.application.user.client.UserClient;
+import ru.practicum.ewm.stats.proto.ActionTypeProto;
+import ru.practicum.ewm.stats.proto.UserActionProto;
+import ru.practicum.stats.client.CollectorClient;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,12 +40,14 @@ public class EventRequestServiceImpl implements EventRequestService {
     final RequestRepository requestRepository;
     final UserClient userClient;
     final EventClient eventClient;
+    final CollectorClient collectorClient;
 
     final EventRequestMapper eventRequestMapper;
 
     @Override
     @Transactional
     public EventRequestDto addRequest(Long userId, Long eventId) throws ConflictException, NotFoundException {
+        collectorClient.sendUserAction(createUserAction(eventId, userId, ActionTypeProto.ACTION_REGISTER, Instant.now()));
         UserDto user = userClient.getById(userId);
         EventFullDto event = getEventById(eventId);
 
@@ -180,6 +187,11 @@ public class EventRequestServiceImpl implements EventRequestService {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public boolean isUserTakePart(Long userId, Long eventId) {
+        return requestRepository.userTakePart(userId, eventId);
+    }
+
     private EventRequest createNewEventRequest(UserDto user, EventFullDto event) {
         EventRequest newRequest = new EventRequest();
         newRequest.setRequester(user.getId());
@@ -223,5 +235,17 @@ public class EventRequestServiceImpl implements EventRequestService {
 
     private EventFullDto getEventById(Long eventId) throws NotFoundException {
         return eventClient.getInnerEventById(eventId);
+    }
+
+    private UserActionProto createUserAction(Long eventId, Long userId, ActionTypeProto type, Instant timestamp) {
+        return UserActionProto.newBuilder()
+                .setUserId(userId)
+                .setEventId(eventId)
+                .setActionType(type)
+                .setTimestamp(Timestamp.newBuilder()
+                        .setSeconds(timestamp.getEpochSecond())
+                        .setNanos(timestamp.getNano())
+                        .build())
+                .build();
     }
 }
