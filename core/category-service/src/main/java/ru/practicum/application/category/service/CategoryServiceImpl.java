@@ -89,10 +89,11 @@ public class CategoryServiceImpl implements CategoryService {
             throw new NotFoundException(String.format("Категория с id=%d не существует", catId));
         }
 
-        if (eventClient.existsByCategoryId(catId)) {
+        if (!eventClient.existsByCategoryId(catId)) {
+            categoryRepository.deleteById(catId);
+        } else {
             throw new ConflictException("Невозможно удаление используемой категории события ");
         }
-        categoryRepository.deleteById(catId);
     }
 
     @Override

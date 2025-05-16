@@ -10,6 +10,7 @@ import ru.practicum.application.api.exception.ConflictException;
 import ru.practicum.application.api.exception.NotFoundException;
 import ru.practicum.application.api.exception.ValidationException;
 
+import java.util.Arrays;
 import java.util.Map;
 
 @RestControllerAdvice(basePackages = {"ru.practicum.application.event", "ru.practicum.application.compilation"})
