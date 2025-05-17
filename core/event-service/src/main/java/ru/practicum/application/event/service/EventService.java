@@ -8,7 +8,7 @@ import ru.practicum.application.api.exception.ValidationException;
 import java.util.List;
 
 public interface EventService {
-    EventFullDto getEventById(Long eventId, String uri, String ip) throws NotFoundException;
+    EventFullDto getEventById(Long eventId, Long userId, String uri, String ip) throws NotFoundException;
 
     List<EventShortDto> getFilteredEvents(String text,
                                           List<Long> categories,
@@ -21,4 +21,8 @@ public interface EventService {
                                           Integer size,
                                           String uri,
                                           String ip) throws ValidationException;
+
+    List<EventFullDto> getRecommendations(Long userId);
+
+    void likeEvent(Long eventId, Long userId) throws ValidationException;
 }

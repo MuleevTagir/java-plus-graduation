@@ -24,16 +24,18 @@ public interface EventRepository extends JpaRepository<Event, Long> {
             "WHERE e.initiator IN :users " +
             "AND e.state IN :states " +
             "AND e.category IN :categories " +
-            "AND e.eventDate < :rangeStart ", nativeQuery = true)
-    List<Event> findByParametersWithoutEnd(List<Long> users, List<String> states, List<Long> categories, String rangeStart, Pageable page);
+            "AND e.eventDate < :rangeStart " +
+            "LIMIT :limitSize", nativeQuery = true)
+    List<Event> findByParametersWithoutEnd(List<Long> users, List<String> states, List<Long> categories, String rangeStart, Integer limitSize);
 
     @Query(value = "SELECT e FROM Event e " +
             "WHERE e.initiator IN :users " +
             "AND e.state IN :states " +
             "AND e.category IN :categories " +
             "AND e.eventDate < :rangeStart " +
-            "AND e.eventDate > :rangeEnd ", nativeQuery = true)
-    List<Event> findByParametersWithEnd(List<Long> users, List<String> states, List<Long> categories, String rangeStart, String rangeEnd, Pageable page);
+            "AND e.eventDate > :rangeEnd " +
+            "LIMIT :limitSize", nativeQuery = true)
+    List<Event> findByParametersWithEnd(List<Long> users, List<String> states, List<Long> categories, String rangeStart, String rangeEnd, Integer limitSize);
 
     @Query("SELECT e FROM Event e WHERE e.initiator IN :users " +
             "AND e.state in :states " +

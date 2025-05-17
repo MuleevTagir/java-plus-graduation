@@ -32,5 +32,5 @@ public class EventShortDto {
     LocalDateTime eventDate;
 
     Boolean paid;
-    Integer views;
+    Double rating;
 }

@@ -1,5 +1,6 @@
 package ru.practicum.application.event.service;
 
+import com.google.protobuf.Timestamp;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -18,18 +19,20 @@ import ru.practicum.application.api.exception.ValidationException;
 import ru.practicum.application.category.client.CategoryClient;
 import ru.practicum.application.event.repository.EventRepository;
 import ru.practicum.application.request.client.EventRequestClient;
-import ru.practicum.client.StatsClient;
-import ru.practicum.dto.StatsRequestDto;
 import ru.practicum.application.event.mapper.EventMapper;
 import ru.practicum.application.event.model.Event;
 import ru.practicum.application.user.client.UserClient;
+import ru.practicum.ewm.stats.proto.*;
+import ru.practicum.stats.client.AnalyzerClient;
+import ru.practicum.stats.client.CollectorClient;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static ru.practicum.client.util.JsonFormatPattern.JSON_FORMAT_PATTERN_FOR_TIME;
+import static ru.practicum.application.api.util.JsonFormatPattern.JSON_FORMAT_PATTERN_FOR_TIME;
 
 @Service
 @Slf4j
@@ -41,14 +44,12 @@ public class EventServiceImpl implements EventService {
     final UserClient userClient;
     final CategoryClient categoryClient;
     final EventRequestClient requestClient;
-    final StatsClient statsClient;
+    final CollectorClient collectorClient;
+    final AnalyzerClient analyzerClient;
 
     @Override
-    public EventFullDto getEventById(Long eventId, String uri, String ip) throws NotFoundException {
-        statsClient.save(new StatsRequestDto("main-server",
-                uri,
-                ip,
-                LocalDateTime.now()));
+    public EventFullDto getEventById(Long eventId, Long userId, String uri, String ip) throws NotFoundException {
+        collectorClient.sendUserAction(createUserAction(eventId, userId, ActionTypeProto.ACTION_VIEW, Instant.now()));
         Event event = eventRepository.findById(eventId).orElseThrow(
                 () -> new NotFoundException("Событие с id=" + eventId + " не найдено"));
 
@@ -63,11 +64,11 @@ public class EventServiceImpl implements EventService {
                 userClient.getById(event.getInitiator())
         );
 
-        List<String> urls = Collections.singletonList(uri);
-        LocalDateTime start = LocalDateTime.parse(eventFullDto.getCreatedOn(), DateTimeFormatter.ofPattern(JSON_FORMAT_PATTERN_FOR_TIME));
-        LocalDateTime end = LocalDateTime.now();
-        var views = statsClient.getStats(start, end, urls, true).size();
-        eventFullDto.setViews(views);
+        List<RecommendedEventProto> proto = analyzerClient.getInteractionsCount(
+                getInteractionsRequest(eventId)
+        );
+        Double rating = proto.isEmpty() ? 0.0 : proto.getFirst().getScore();
+        eventFullDto.setRating(rating);
         return eventFullDto;
     }
 
@@ -135,37 +136,52 @@ public class EventServiceImpl implements EventService {
             }
             events = eventRepository.findEventList(text, categories, paid, startDate, endDate, EventState.PUBLISHED);
         }
-        statsClient.save(new StatsRequestDto("main-server",
-                uri,
-                ip,
-                LocalDateTime.now()));
         if (!sortDate) {
             List<EventShortDto> shortEventDtos = createShortEventDtos(events);
-            shortEventDtos.sort(Comparator.comparing(EventShortDto::getViews));
+            shortEventDtos.sort(Comparator.comparing(EventShortDto::getRating));
             shortEventDtos = shortEventDtos.subList(from, Math.min(from + size, shortEventDtos.size()));
             return shortEventDtos;
         }
         return createShortEventDtos(events);
     }
 
+    @Override
+    public List<EventFullDto> getRecommendations(Long userId) {
+        List<Event> events = eventRepository.findAllById(
+                analyzerClient.getRecommendationsForUser(
+                UserPredictionsRequestProto.newBuilder()
+                        .setUserId(userId)
+                        .setMaxResult(10)
+                        .build()
+                ).stream().map(RecommendedEventProto::getEventId).collect(Collectors.toList())
+        );
+        List<Long> usersIds = events.stream().map(Event::getInitiator).toList();
+        Set<Long> categoriesIds = events.stream().map(Event::getCategory).collect(Collectors.toSet());
+        Map<Long, UserDto> users = userClient.getUsersList(usersIds, 0, Math.max(events.size(), 1)).stream()
+                .collect(Collectors.toMap(UserDto::getId, userDto -> userDto));
+        Map<Long, CategoryDto> categories = categoryClient.getCategoriesByIds(categoriesIds).stream()
+                .collect(Collectors.toMap(CategoryDto::getId, categoryDto -> categoryDto));
+
+        return events.stream().map(e -> EventMapper.mapEventToFullDto(
+                e,
+                requestClient.countByEventAndStatuses(e.getId(), List.of("CONFIRMED")),
+                categories.get(e.getCategory()),
+                users.get(e.getInitiator())
+        )).collect(Collectors.toList());
+    }
+
+    @Override
+    public void likeEvent(Long eventId, Long userId) throws ValidationException {
+        if (!requestClient.isUserTakePart(userId, eventId)) {
+            throw new ValidationException("Пользователь " + userId + " не принимал участи в событии " + eventId);
+        }
+        collectorClient.sendUserAction(createUserAction(eventId, userId, ActionTypeProto.ACTION_LIKE, Instant.now()));
+    }
+
     List<EventShortDto> createShortEventDtos(List<Event> events) {
-        HashMap<Long, Integer> eventIdsWithViewsCounter = new HashMap<>();
-
-        LocalDateTime startTime = events.getFirst().getCreatedOn();
-        ArrayList<String> uris = new ArrayList<>();
-        for (Event event : events) {
-            uris.add("/events/" + event.getId().toString());
-            if (startTime.isAfter(event.getCreatedOn())) {
-                startTime = event.getCreatedOn();
-            }
-        }
-
-        var viewsCounter = statsClient.getStats(startTime, LocalDateTime.now(), uris, true);
-        for (var statsDto : viewsCounter) {
-            String[] split = statsDto.getUri().split("/");
-            eventIdsWithViewsCounter.put(Long.parseLong(split[2]), Math.toIntExact(statsDto.getHits()));
-        }
-        List<EventRequestDto> requests = requestClient.findByEventIds(new ArrayList<>(eventIdsWithViewsCounter.keySet()));
+        List<EventRequestDto> requests = requestClient.findByEventIds(new ArrayList<>(
+                events.stream().map(Event::getId).collect(Collectors.toList())
+        ));
         List<Long> usersIds = events.stream().map(Event::getInitiator).toList();
         Set<Long> categoriesIds = events.stream().map(Event::getCategory).collect(Collectors.toSet());
         Map<Long, UserDto> users = userClient.getUsersList(usersIds, 0, Math.max(events.size(), 1)).stream()
@@ -179,7 +195,27 @@ public class EventServiceImpl implements EventService {
                                 .filter((request -> request.getEvent().equals(dto.getId())))
                                 .count()
                 ))
-                .peek(dto -> dto.setViews(eventIdsWithViewsCounter.get(dto.getId())))
+                .peek(dto -> {
+                    List<RecommendedEventProto> proto = analyzerClient.getInteractionsCount(getInteractionsRequest(dto.getId()));
+                    dto.setRating(proto.isEmpty() ? 0.0 : proto.getFirst().getScore());
+
+                })
                 .collect(Collectors.toList());
+    }
+
+    private static InteractionsCountRequestProto getInteractionsRequest(Long eventId) {
+        return InteractionsCountRequestProto.newBuilder().addEventId(eventId).build();
+    }
+
+    UserActionProto createUserAction(Long eventId, Long userId, ActionTypeProto type, Instant timestamp) {
+        return UserActionProto.newBuilder()
+                .setUserId(userId)
+                .setEventId(eventId)
+                .setActionType(type)
+                .setTimestamp(Timestamp.newBuilder()
+                        .setSeconds(timestamp.getEpochSecond())
+                        .setNanos(timestamp.getNano())
+                        .build())
+                .build();
     }
 }
