@@ -11,6 +11,16 @@ import ru.practicum.stats.analyzer.starter.UserActionStarter;
 @ConfigurationPropertiesScan
 public class AnalyzerServer {
     public static void main(String[] args) {
-        SpringApplication.run(AnalyzerServer.class, args);
+        ConfigurableApplicationContext context = SpringApplication.run(AnalyzerServer.class, args);
+        SimilarityStarter similarityStarter = context.getBean(SimilarityStarter.class);
+        UserActionStarter userActionStarter = context.getBean(UserActionStarter.class);
+
+        Thread similarity = new Thread(similarityStarter);
+        similarity.setName("similarity");
+        similarity.start();
+
+        Thread action = new Thread(userActionStarter);
+        action.setName("action");
+        action.start();
     }
 }

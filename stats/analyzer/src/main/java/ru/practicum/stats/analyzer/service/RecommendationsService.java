@@ -16,7 +16,10 @@ import ru.practicum.stats.analyzer.model.UserAction;
 import ru.practicum.stats.analyzer.repository.SimilarityRepository;
 import ru.practicum.stats.analyzer.repository.UserActionRepository;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -29,18 +32,12 @@ public class RecommendationsService {
 
     public void getRecommendationsForUser(UserPredictionsRequestProto request,
                                           StreamObserver<RecommendedEventProto> responseObserver) {
-        // Получаем идентификаторы событий, с которыми пользователь взамидействовал последние request.getMaxResult() раз
-        List<Long> userRecentActionsEvents = actionRepository.findRecentEventIdsByUserId(
-                request.getUserId(), request.getMaxResult()
-        );
-        // Получаем все взаимодействия пользователя
+        List<Long> userRecentActionsEvents = actionRepository.findRecentEventIdsByUserId(request.getUserId(), request.getMaxResult());
         List<UserAction> allUserInteraction = actionRepository.findAllInteractionsByUser(request.getUserId());
-        // Если пользователь ни с чем не взаимодействовал, невозможно что-то порекомендовать
         if (userRecentActionsEvents.isEmpty()) {
             return;
         }
 
-        // Получаем идентификаторы событий, наиболее похожих на те, с которыми недавно взаимодествовал пользователь
         List<Long> similarities = similarityRepository.findSimilarUnseenEvents(
                         userRecentActionsEvents,
                         allUserInteraction.stream().map(UserAction::getEventId).toList(),
@@ -48,27 +45,19 @@ public class RecommendationsService {
                 ).stream().map(es -> userRecentActionsEvents.contains(es.getFirst()) ? es.getSecond() : es.getFirst())
                 .toList();
 
-        // Преобразуем взаимодействия пользователя в отображение индентификаторов событий на их оценку пользователем
         Map<Long, Double> eventScore = allUserInteraction.stream()
                 .collect(Collectors.toMap(UserAction::getEventId, UserAction::getScore));
 
         List<RecommendedEventProto> result = new ArrayList<>();
-        // Получаем события, максимально похожие на кандидатов и те, с которыми пользователь уже взаимодействовал
-        List<EventSimilarity> allSimilaritiesForSimilarities = similarityRepository
-                .findTopKSimilarUserEvents(similarities,
-                        allUserInteraction.stream().map(UserAction::getEventId).toList(), request.getMaxResult());
 
         for (Long candidateId : similarities) {
-            // Определяем лишь сходства для конкретного кандидата
-            List<EventSimilarity> top = allSimilaritiesForSimilarities.stream()
-                    .filter(e -> Objects.equals(e.getFirst(), candidateId) || Objects.equals(e.getSecond(), candidateId))
-                    .toList();
+            List<EventSimilarity> topK = similarityRepository
+                    .findTopKSimilarUserEvents(candidateId,
+                            allUserInteraction.stream().map(UserAction::getEventId).toList(), request.getMaxResult());
 
-            // Сумма оценок всех сходных кандидату, умноженных на коэффициент подобия
             double weightedSum = 0;
-            // Сумма коэффициентов подобия всех событий сходных кандидату
             double simSum = 0;
-            for (EventSimilarity es : top) {
+            for (EventSimilarity es : topK) {
                 Long neighborId = es.getFirst().equals(candidateId) ? es.getSecond() : es.getFirst();
                 Double neighborScore = eventScore.get(neighborId);
                 if (neighborScore != null) {
@@ -77,7 +66,6 @@ public class RecommendationsService {
                 }
             }
 
-            // Вычисление предсказываемой пользователем оценки
             double predictedScore = simSum > 0 ? weightedSum / simSum : 0;
 
             result.add(RecommendedEventProto.newBuilder().setEventId(candidateId).setScore(predictedScore).build());

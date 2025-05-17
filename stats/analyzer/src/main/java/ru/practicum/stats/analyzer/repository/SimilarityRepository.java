@@ -45,13 +45,13 @@ public interface SimilarityRepository extends JpaRepository<EventSimilarity, Eve
     SELECT es
     FROM EventSimilarity es
     WHERE
-        (es.first IN :targetEventIds AND es.second IN :userEventIds)
-        OR (es.second IN :targetEventIds AND es.first IN :userEventIds)
+        (es.first = :targetEventId AND es.second IN :userEventIds)
+        OR (es.second = :targetEventId AND es.first IN :userEventIds)
     ORDER BY es.score DESC
     LIMIT :limit
     """)
     List<EventSimilarity> findTopKSimilarUserEvents(
-            @Param("targetEventIds") List<Long> targetEventIds,
+            @Param("targetEventId") Long targetEventId,
             @Param("userEventIds") List<Long> userEventIds,
             @Param("limit") int limit
     );

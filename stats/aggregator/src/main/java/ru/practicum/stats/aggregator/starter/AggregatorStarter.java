@@ -1,6 +1,5 @@
 package ru.practicum.stats.aggregator.starter;
 
-import jakarta.annotation.PostConstruct;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -20,12 +19,11 @@ import java.time.Duration;
 @AllArgsConstructor
 @Component
 @Slf4j
-public class AggregatorStarter implements Runnable {
+public class AggregatorStarter {
     final Consumer<String, UserActionAvro> consumer;
     final UserActionHandler handler;
 
-    @Override
-    public void run() {
+    public void start() {
         try {
             log.info("Получение данных");
             while (true) {
@@ -53,12 +51,5 @@ public class AggregatorStarter implements Runnable {
                 handler.close();
             }
         }
-    }
-
-    @PostConstruct
-    public void init() {
-        Thread thread = new Thread(this);
-        thread.setName("aggregator");
-        thread.start();
     }
 }
