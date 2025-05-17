@@ -26,4 +26,6 @@ public interface EventRequestService {
     List<EventRequestDto> getByEventAndStatus(List<Long> eventId, String status);
 
     List<EventRequestDto> findByEventIds(List<Long> id);
+
+    boolean isUserTakePart(Long userId, Long eventId);
 }
