@@ -12,7 +12,6 @@ import ru.practicum.application.api.dto.enums.StateAction;
 import ru.practicum.application.api.dto.event.EventFullDto;
 import ru.practicum.application.api.dto.event.EventShortDto;
 import ru.practicum.application.api.dto.event.NewEventDto;
-import ru.practicum.application.api.dto.request.EventRequestDto;
 import ru.practicum.application.api.dto.user.UserDto;
 import ru.practicum.application.api.exception.ConflictException;
 import ru.practicum.application.api.exception.NotFoundException;
@@ -20,44 +19,37 @@ import ru.practicum.application.api.exception.ValidationException;
 import ru.practicum.application.api.exception.WrongDataException;
 import ru.practicum.application.api.request.event.UpdateEventUserRequest;
 import ru.practicum.application.category.client.CategoryClient;
-import ru.practicum.application.event.client.EventClient;
+import ru.practicum.application.event.mapper.EventMapper;
+import ru.practicum.application.event.model.Event;
 import ru.practicum.application.event.repository.EventRepository;
 import ru.practicum.application.event.repository.LocationRepository;
 import ru.practicum.application.request.client.EventRequestClient;
 import ru.practicum.application.user.client.UserClient;
-import ru.practicum.client.StatsClient;
-import ru.practicum.application.event.mapper.EventMapper;
-import ru.practicum.application.event.model.Event;
+import ru.practicum.ewm.stats.proto.InteractionsCountRequestProto;
+import ru.practicum.ewm.stats.proto.RecommendedEventProto;
+import ru.practicum.stats.client.AnalyzerClient;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import static ru.practicum.application.api.dto.enums.StateAction.PUBLISH_EVENT;
-import static ru.practicum.client.util.JsonFormatPattern.JSON_FORMAT_PATTERN_FOR_TIME;
+import static ru.practicum.application.api.util.JsonFormatPattern.JSON_FORMAT_PATTERN_FOR_TIME;
 
 @Service
 @Slf4j
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class UserEventServiceImpl implements UserEventService {
-
-    private final static String PUBLISH_EVENT= "PUBLISH_EVENT";
-    private final static String CANCEL_REVIEW = "CANCEL_REVIEW";
-    private final static String SEND_TO_REVIEW = "SEND_TO_REVIEW";
-
     final EventRepository eventRepository;
     final LocationRepository locationRepository;
 
     final UserClient userClient;
     final CategoryClient categoryClient;
     final EventRequestClient requestClient;
-
-    final StatsClient statsClient;
+    final AnalyzerClient analyzerClient;
 
     private static void validationEventDate(Event event) throws ValidationException, WrongDataException {
         if (LocalDateTime.now().isAfter(event.getEventDate().minusHours(1))) {
@@ -123,7 +115,7 @@ public class UserEventServiceImpl implements UserEventService {
         locationRepository.save(event.getLocation());
         eventRepository.save(event);
         Long confirmed = requestClient.countByEventAndStatuses(event.getId(), List.of("CONFIRMED"));
-        return getViewsCounter(EventMapper.mapEventToFullDto(event, confirmed,
+        return getRatingCounter(EventMapper.mapEventToFullDto(event, confirmed,
                 categoryClient.getCategoryById(event.getCategory()), user));
     }
 
@@ -151,7 +143,7 @@ public class UserEventServiceImpl implements UserEventService {
             throw new ValidationException("Пользователь " + userId + " не является инициатором события " + eventId);
         }
         Long confirmed = requestClient.countByEventAndStatuses(event.getId(), List.of("CONFIRMED"));
-        return getViewsCounter(EventMapper.mapEventToFullDto(event, confirmed,
+        return getRatingCounter(EventMapper.mapEventToFullDto(event, confirmed,
                 categoryClient.getCategoryById(event.getCategory()), user));
     }
 
@@ -197,14 +189,14 @@ public class UserEventServiceImpl implements UserEventService {
         }
         if (inpEventDto.getStateAction() != null) {
             switch (inpEventDto.getStateAction().toUpperCase()) {
-                case PUBLISH_EVENT:
+                case "PUBLISH_EVENT":
                     event.setState(EventState.PUBLISHED);
                     event.setPublishedOn(LocalDateTime.now());
                     break;
-                case CANCEL_REVIEW:
+                case "CANCEL_REVIEW":
                     event.setState(EventState.CANCELED);
                     break;
-                case SEND_TO_REVIEW:
+                case "SEND_TO_REVIEW":
                     event.setState(EventState.PENDING);
                     break;
                 default:
@@ -213,13 +205,12 @@ public class UserEventServiceImpl implements UserEventService {
         }
     }
 
-    EventFullDto getViewsCounter(EventFullDto eventFullDto) {
-        ArrayList<String> urls = new ArrayList<>(List.of("/events/" + eventFullDto.getId()));
-        LocalDateTime start = LocalDateTime.parse(eventFullDto.getCreatedOn(), DateTimeFormatter.ofPattern(JSON_FORMAT_PATTERN_FOR_TIME));
-        LocalDateTime end = LocalDateTime.now();
-
-        Integer views = statsClient.getStats(start, end, urls, true).size();
-        eventFullDto.setViews(views);
+    EventFullDto getRatingCounter(EventFullDto eventFullDto) {
+        List<RecommendedEventProto> protos = analyzerClient.getInteractionsCount(
+                InteractionsCountRequestProto.newBuilder().addEventId(eventFullDto.getId()).build()
+        );
+        Double rating = protos.isEmpty() ? 0.0 : protos.getFirst().getScore();
+        eventFullDto.setRating(rating);
         return eventFullDto;
     }
 }
