@@ -10,9 +10,9 @@ import ru.practicum.application.api.dto.event.EventShortDto;
 import ru.practicum.application.api.dto.user.UserDto;
 import ru.practicum.application.api.exception.NotFoundException;
 import ru.practicum.application.category.client.CategoryClient;
+import ru.practicum.application.event.repository.EventRepository;
 import ru.practicum.application.event.mapper.EventMapper;
 import ru.practicum.application.event.model.Event;
-import ru.practicum.application.event.repository.EventRepository;
 import ru.practicum.application.user.client.UserClient;
 
 import java.util.List;

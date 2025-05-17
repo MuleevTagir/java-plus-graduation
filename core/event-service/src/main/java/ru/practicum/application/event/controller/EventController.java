@@ -9,8 +9,8 @@ import ru.practicum.application.api.dto.event.EventFullDto;
 import ru.practicum.application.api.dto.event.EventShortDto;
 import ru.practicum.application.api.exception.NotFoundException;
 import ru.practicum.application.api.exception.ValidationException;
-import ru.practicum.application.event.api.EventInterface;
 import ru.practicum.application.event.service.EventService;
+import ru.practicum.application.event.api.EventInterface;
 
 import java.util.List;
 
