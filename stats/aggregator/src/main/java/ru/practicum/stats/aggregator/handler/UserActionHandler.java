@@ -19,10 +19,16 @@ import java.util.*;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class UserActionHandler {
     final SimilarityProducer producer;
+    // Внешний ключ — событие, внутренний — пользователь, значение — вес оценки пользователем события
     final Map<Long, Map<Long, Double>> usersFeedback;
+    // Ключ — пара двух событий, значение — сумма оценок общих пользователей
+    // За оценку одного пользователя берётся наименьшая его оценка из оценок двух событий из ключа
     final Map<EventPair, Double> eventsMinWeightSum;
+    // Ключ — событие, значение — сумма всех оценок пользователей данного события
     final Map<Long, Double> eventWeightSum;
+    // Ключ — пара двух событий, значение — значение сходства двух событий из ключа
     final Map<EventPair, Double> eventsSimilarity;
+    // Ключ — событие, значение — квадратный корень суммы всех оценок пользователей данного события
     final Map<Long, Double> sqrtCache;
 
 
@@ -41,6 +47,7 @@ public class UserActionHandler {
         Long eventId = avro.getEventId();
         Double weight = convertActionToWeight(avro.getActionType());
 
+        // Получаем оценки пользователей для в avro события, еслил их нет, создаём новую мапу
         Map<Long, Double> userRatings = usersFeedback.computeIfAbsent(eventId, k -> new HashMap<>());
         Double oldWeight = userRatings.getOrDefault(userId, 0.0);
 
@@ -59,18 +66,26 @@ public class UserActionHandler {
     }
 
     private void determineSimilarity(Long eventId, Long userId, Double oldWeight, Double newWeight, Instant timestamp) {
+        // Сумму всех оценок пользователей для события
+        // Для получения новой суммы необходимо вычесть старую оценку пользователя и добавить новую
+        // Оценки остальных пользователей не меняются
         double newSum = eventWeightSum.getOrDefault(eventId, 0.0) - oldWeight + newWeight;
         eventWeightSum.put(eventId, newSum);
+        // Убираем из кэша старый квадратный корень от суммк оценок
         sqrtCache.remove(eventId);
 
+        // Начинаем проверку каждого сохранённого события
         for (Map.Entry<Long, Map<Long, Double>> entry : usersFeedback.entrySet()) {
             Long otherEventId = entry.getKey();
             Map<Long, Double> feedback = entry.getValue();
+            // Если пользователь не взаимодейсвтовал со вторым событием, то подобие всегда будет 0
             if (!feedback.containsKey(userId) || Objects.equals(otherEventId, eventId)) continue;
 
             double convergenceWeight = feedback.get(userId);
             EventPair pair = EventPair.of(eventId, otherEventId);
 
+            // Общая сумма оценок обоих событий, также как и сумма оценок самого события, изменяется только
+            // по дейсвтующему пользователю, остальных рассматривать смысла нет
             double oldMinSum = eventsMinWeightSum.getOrDefault(pair, 0.0);
             double newMinSum = oldMinSum - Math.min(oldWeight, convergenceWeight) + Math.min(newWeight, convergenceWeight);
             eventsMinWeightSum.put(pair, newMinSum);
@@ -93,6 +108,7 @@ public class UserActionHandler {
         double sqrtA = getSqrtSum(pair.first());
         double sqrtB = getSqrtSum(pair.second());
 
+        // Используем формулу косинусного сходства двух векторов для определения сходства событий
         double similarity = commonSum / (sqrtA * sqrtB);
         log.info("Определено сходство событий {} и {}: {}", pair.first(), pair.second(), similarity);
         return similarity;

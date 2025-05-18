@@ -32,7 +32,7 @@ public class BaseAvroDeserializer<T extends SpecificRecordBase> implements Deser
             }
             return null;
         } catch (Exception e) {
-            throw new RuntimeException("");
+            throw new RuntimeException("Ошибка десериализации");
         }
     }
 }

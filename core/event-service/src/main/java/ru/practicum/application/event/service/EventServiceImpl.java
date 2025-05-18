@@ -5,6 +5,7 @@ import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang.StringUtils;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -147,14 +148,18 @@ public class EventServiceImpl implements EventService {
 
     @Override
     public List<EventFullDto> getRecommendations(Long userId) {
-        List<Event> events = eventRepository.findAllById(
-                analyzerClient.getRecommendationsForUser(
+
+        log.info("Вывоз метода клиента: analyzerClient.getRecommendationsForUser with params userId = {}, maxResult", userId);
+        List<Long> recommendationsForUser = analyzerClient.getRecommendationsForUser(
                 UserPredictionsRequestProto.newBuilder()
                         .setUserId(userId)
                         .setMaxResult(10)
                         .build()
-                ).stream().map(RecommendedEventProto::getEventId).collect(Collectors.toList())
-        );
+        ).stream().map(RecommendedEventProto::getEventId).collect(Collectors.toList());
+        log.info("вывоз метода клиента analyzerClient.getRecommendationsForUser вернул данные: {}", StringUtils.join(recommendationsForUser, ','));
+
+        List<Event> events = eventRepository.findAllById(recommendationsForUser);
+
         List<Long> usersIds = events.stream().map(Event::getInitiator).toList();
         Set<Long> categoriesIds = events.stream().map(Event::getCategory).collect(Collectors.toSet());
         Map<Long, UserDto> users = userClient.getUsersList(usersIds, 0, Math.max(events.size(), 1)).stream()
