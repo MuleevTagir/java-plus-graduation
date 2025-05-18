@@ -19,14 +19,15 @@ import ru.practicum.application.api.exception.ValidationException;
 import ru.practicum.application.api.exception.WrongDataException;
 import ru.practicum.application.api.request.event.UpdateEventAdminRequest;
 import ru.practicum.application.category.client.CategoryClient;
-import ru.practicum.application.event.client.EventClient;
 import ru.practicum.application.event.repository.EventRepository;
 import ru.practicum.application.event.repository.LocationRepository;
 import ru.practicum.application.request.client.EventRequestClient;
-import ru.practicum.client.StatsClient;
 import ru.practicum.application.event.mapper.EventMapper;
 import ru.practicum.application.event.model.Event;
 import ru.practicum.application.user.client.UserClient;
+import ru.practicum.ewm.stats.proto.InteractionsCountRequestProto;
+import ru.practicum.ewm.stats.proto.RecommendedEventProto;
+import ru.practicum.stats.client.AnalyzerClient;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -47,7 +48,7 @@ public class AdminEventServiceImpl implements AdminEventService {
     final UserClient userClient;
     final CategoryClient categoryClient;
     final EventRequestClient requestClient;
-    final StatsClient statsClient;
+    final AnalyzerClient analyzerClient;
 
     @Override
     public List<EventFullDto> getEvents(List<Long> users, List<String> states, List<Long> categories, LocalDateTime rangeStart, LocalDateTime rangeEnd, Integer from, Integer size) throws ValidationException {
@@ -92,8 +93,8 @@ public class AdminEventServiceImpl implements AdminEventService {
                     .toList();
         } else {
             Map<Long, Event> allEventsWithDates = eventRepository.findAllEventsWithDates(users,
-                    eventStateList, categories, rangeStart, rangeEnd,
-                    PageRequest.of(from / size, size, Sort.by(Sort.Direction.DESC, "e.eventDate")))
+                            eventStateList, categories, rangeStart, rangeEnd,
+                            PageRequest.of(from / size, size, Sort.by(Sort.Direction.DESC, "e.eventDate")))
                     .stream().collect(Collectors.toMap(Event::getId, e -> e));
 
             List<EventRequestDto> requestsByEventIds = requestClient.findByEventIds(allEventsWithDates.values().stream()
@@ -108,7 +109,7 @@ public class AdminEventServiceImpl implements AdminEventService {
             Map<Long, CategoryDto> categoriesByRequests = categoryClient.getCategoriesByIds(categoriesIds).stream()
                     .collect(Collectors.toMap(CategoryDto::getId, categoryDto -> categoryDto));
 
-             eventDtos = allEventsWithDates.values().stream()
+            eventDtos = allEventsWithDates.values().stream()
                     .map(e -> EventMapper.mapEventToFullDto(e,
                             requestsByEventIds.stream()
                                     .filter(r -> r.getEvent().equals(e.getId()))
@@ -119,31 +120,19 @@ public class AdminEventServiceImpl implements AdminEventService {
         }
 
         if (!eventDtos.isEmpty()) {
-            HashMap<Long, Integer> eventIdsWithViewsCounter = new HashMap<>();
-            LocalDateTime startTime = LocalDateTime.parse(eventDtos.getFirst().getCreatedOn().replace(" ", "T"));
-            ArrayList<String> uris = new ArrayList<>();
-            for (EventFullDto dto : eventDtos) {
-                eventIdsWithViewsCounter.put(dto.getId(), 0);
-                uris.add("/events/" + dto.getId().toString());
-                if (startTime.isAfter(LocalDateTime.parse(dto.getCreatedOn().replace(" ", "T")))) {
-                    startTime = LocalDateTime.parse(dto.getCreatedOn().replace(" ", "T"));
-                }
-            }
-
-            var viewsCounter = statsClient.getStats(startTime, LocalDateTime.now(), uris, true);
-            for (var statsDto : viewsCounter) {
-                String[] split = statsDto.getUri().split("/");
-                eventIdsWithViewsCounter.put(Long.parseLong(split[2]), Math.toIntExact(statsDto.getHits()));
-            }
-            ArrayList<Long> longs = new ArrayList<>(eventIdsWithViewsCounter.keySet());
+            ArrayList<Long> longs = eventDtos.stream()
+                    .map(EventFullDto::getId).collect(Collectors.toCollection(ArrayList::new));
             List<EventRequestDto> requests = requestClient.getByEventAndStatus(longs, "CONFIRMED");
+            Map<Long, Double> eventRating = analyzerClient.getInteractionsCount(getInteractionsRequest(longs))
+                    .stream().collect(Collectors.toMap(RecommendedEventProto::getEventId, RecommendedEventProto::getScore));
+
             return eventDtos.stream()
                     .peek(dto -> dto.setConfirmedRequests(
                             requests.stream()
                                     .filter((request -> request.getEvent().equals(dto.getId())))
                                     .count()
                     ))
-                    .peek(dto -> dto.setViews(eventIdsWithViewsCounter.get(dto.getId())))
+                    .peek(dto -> eventRating.getOrDefault(dto.getId(), 0.0))
                     .collect(Collectors.toList());
         } else {
             return Collections.emptyList();
@@ -239,13 +228,15 @@ public class AdminEventServiceImpl implements AdminEventService {
     }
 
     EventFullDto getViewsCounter(EventFullDto eventFullDto) {
-        ArrayList<String> urls = new ArrayList<>(List.of("/events/" + eventFullDto.getId()));
-        LocalDateTime start = LocalDateTime.parse(eventFullDto.getCreatedOn(), DateTimeFormatter.ofPattern(JSON_FORMAT_PATTERN_FOR_TIME));
-        LocalDateTime end = LocalDateTime.now();
-
-        Integer views = statsClient.getStats(start, end, urls, true).size();
-        eventFullDto.setViews(views);
+        List<RecommendedEventProto> protos = analyzerClient.getInteractionsCount(
+                getInteractionsRequest(List.of(eventFullDto.getId()))
+        );
+        Double rating = protos.isEmpty() ? 0.0 : protos.getFirst().getScore();
+        eventFullDto.setRating(rating);
         return eventFullDto;
     }
 
+    private InteractionsCountRequestProto getInteractionsRequest(List<Long> eventId) {
+        return InteractionsCountRequestProto.newBuilder().addAllEventId(eventId).build();
+    }
 }
